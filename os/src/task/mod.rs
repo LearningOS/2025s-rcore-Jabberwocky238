@@ -17,6 +17,7 @@ mod task;
 use crate::config::MAX_APP_NUM;
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
+use crate::syscall::{SYSCALL_EXIT, SYSCALL_GET_TIME, SYSCALL_TRACE, SYSCALL_WRITE, SYSCALL_YIELD};
 use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
@@ -54,6 +55,7 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: TaskStatus::UnInit,
+            syscall_times: [0; 5],
         }; MAX_APP_NUM];
         for (i, task) in tasks.iter_mut().enumerate() {
             task.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -135,6 +137,36 @@ impl TaskManager {
             panic!("All applications completed!");
         }
     }
+
+    fn update_syscall_times(&self, id: usize, update: bool) -> usize {
+        let mut inner = self.inner.exclusive_access();
+        let current = inner.current_task;
+        let index = match id {
+            SYSCALL_WRITE => 0,
+            SYSCALL_EXIT => 1,
+            SYSCALL_YIELD => 2,
+            SYSCALL_GET_TIME => 3,
+            SYSCALL_TRACE => 4,
+            _ => panic!("Unsupported syscall id: {}", id),
+        };
+        // println!("syscall_times[{}]: {}", index, inner.syscall_times[index]);
+        if update {
+            inner.tasks[current].syscall_times[index] += 1;
+        }
+        inner.tasks[current].syscall_times[index]
+    }
+}
+
+/// Update the syscall times of the task with the given id.
+///
+/// Returns the updated syscall times.
+pub fn update_syscall_times(id: usize) -> usize {
+    TASK_MANAGER.update_syscall_times(id, true)
+}
+
+/// Get the syscall times of the task with the given id.
+pub fn get_syscall_times(id: usize) -> usize {
+    TASK_MANAGER.update_syscall_times(id, false)
 }
 
 /// Run the first task in task list.
